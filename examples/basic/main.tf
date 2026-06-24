@@ -22,9 +22,7 @@ provider "azuread" {
   tenant_id = var.tenant_id
 }
 
-# ---------------------------------------------------------------------------
 # Variables — fill these in for your throwaway subscription / tenant
-# ---------------------------------------------------------------------------
 
 variable "subscription_id" {
   description = "Azure subscription to deploy decoys into."
@@ -41,9 +39,7 @@ variable "resource_group_name" {
   type        = string
 }
 
-# ---------------------------------------------------------------------------
 # Module invocation
-# ---------------------------------------------------------------------------
 
 module "deception" {
   source = "../.."
@@ -96,10 +92,7 @@ module "deception" {
   }
 }
 
-# ---------------------------------------------------------------------------
 # Outputs
-# ---------------------------------------------------------------------------
-
 output "service_principal_app_ids" {
   value = module.deception.service_principal_app_ids
 }
@@ -115,6 +108,10 @@ output "service_principal_secrets" {
 
 output "managed_identity_ids" {
   value = module.deception.managed_identity_ids
+}
+
+output "managed_identity_principal_ids" {
+  value = module.deception.managed_identity_principal_ids
 }
 
 output "storage_account_ids" {

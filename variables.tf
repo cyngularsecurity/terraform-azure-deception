@@ -3,13 +3,7 @@
 # Design locked 2026-06-04 (Epic D.1). Mirror the AWS/GCP shape where possible.
 # =============================================================================
 
-locals {
-  _forbidden = "(?i)(cyngular|deception|decoy|honeytoken|bait|trap|observer)"
-}
-
-# ---------------------------------------------------------------------------
 # Placement
-# ---------------------------------------------------------------------------
 
 variable "subscription_id" {
   description = "Azure subscription the decoys land in (client's choice)."
@@ -41,9 +35,7 @@ variable "resource_group_name" {
   }
 }
 
-# ---------------------------------------------------------------------------
 # Regional fan-out
-# ---------------------------------------------------------------------------
 
 variable "locations" {
   description = "Azure regions for regional decoy kinds (Storage Account, Key Vault). SP and Managed Identity are tenant/subscription scoped."
@@ -56,9 +48,7 @@ variable "locations" {
   }
 }
 
-# ---------------------------------------------------------------------------
 # Attribution tag
-# ---------------------------------------------------------------------------
 
 variable "tracking_tag_key" {
   description = "Tag key applied to every decoy. Should mimic a normal client tag."
@@ -90,9 +80,7 @@ variable "tracking_tag_value" {
   }
 }
 
-# ---------------------------------------------------------------------------
 # Per-kind blocks
-# ---------------------------------------------------------------------------
 
 variable "service_principal" {
   description = "Service Principal honeytokens. Zero role assignments; optional Conditional Access blocking sign-ins."
@@ -235,9 +223,7 @@ variable "key_vault_secret" {
   }
 }
 
-# ---------------------------------------------------------------------------
 # Lure tags
-# ---------------------------------------------------------------------------
 
 variable "lure_tags" {
   description = "Believable operational tags applied to every decoy alongside the tracking tag. No Cyngular reference."

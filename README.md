@@ -28,7 +28,7 @@ The Terraform apply principal needs:
 | Permission | Required for |
 |---|---|
 | Contributor on the resource group | Storage Account, Key Vault, Managed Identity creation |
-| Storage Blob Data Contributor on each storage account | Uploading decoy blobs via Azure AD data-plane auth |
+| Storage Blob Data Contributor on each storage account | **Auto-assigned by the module** to the apply principal at account scope |
 | Key Vault Secrets Officer on each Key Vault | **Auto-assigned by the module** to the apply principal at vault scope |
 
 **Tenant scope (Azure AD)**

@@ -1,5 +1,3 @@
-data "azurerm_client_config" "current" {}
-
 resource "random_id" "kv_suffix" {
   for_each    = local.kv_instances
   byte_length = 2

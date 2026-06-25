@@ -26,10 +26,28 @@ resource "azurerm_storage_account" "decoy" {
   tags = local.common_tags
 }
 
+# Grant the Terraform apply principal Blob Data Contributor on each account so
+# it can upload the decoy blobs during apply. Zero role assignments exist for
+# the decoy SPs/MIs — this is solely for the apply principal.
+resource "azurerm_role_assignment" "storage_apply_principal" {
+  for_each             = local.sa_instances
+  scope                = azurerm_storage_account.decoy[each.key].id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = data.azurerm_client_config.current.object_id
+}
+
+# Wait for RBAC propagation before creating the container and blobs.
+resource "time_sleep" "storage_rbac_propagation" {
+  depends_on      = [azurerm_role_assignment.storage_apply_principal]
+  create_duration = "120s"
+}
+
 resource "azurerm_storage_container" "decoy" {
   for_each           = local.sa_instances
   name               = "documents"
   storage_account_id = azurerm_storage_account.decoy[each.key].id
+
+  depends_on = [time_sleep.storage_rbac_propagation]
 }
 
 resource "azurerm_storage_blob" "decoy" {

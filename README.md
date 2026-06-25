@@ -173,11 +173,3 @@ All per-kind objects share `enabled`, `count`, `name_prefix`. See `variables.tf`
 | KV secret name | 1–127 chars, `[a-zA-Z0-9-]` | Fixed to `storage-account-key` |
 | Managed Identity | 3–128 chars, alphanumeric + `_-.` | `name_prefix-index` |
 | App Registration display_name | ≤ 256 chars | `name_prefix-index` |
-
-## Releasing
-
-Pushes to `main` trigger `.github/workflows/publish_tf_module.yml`, which auto-tags `vX.Y.Z` using the built-in `GITHUB_TOKEN` (no `PA_TOKEN` secret required). The [Terraform Registry](https://registry.terraform.io) auto-publishes new tags once the repo is connected via the one-time UI step at `registry.terraform.io`.
-
-## Out of scope (v1)
-
-Management Group / tenant-root policies · Customer-managed encryption keys (CMEK) · Private Endpoints · Diagnostic settings → Log Analytics · Resource Locks · SQL / Cosmos DB / VM snapshot decoys · Steganographic markers · Observer principal / sole-allowed-reader role · Secret distribution (tracked separately, same open question as AWS access keys).

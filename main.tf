@@ -1,17 +1,9 @@
-# =============================================================================
-# terraform-azure-deception (DEFERRED SCAFFOLDING)
-# Azure counterpart of terraform-aws-deception. Design is NOT yet locked —
-# this is a placeholder repo created alongside AWS/GCP. Resource design will
-# follow the AWS shape once proven. See references/deception-resource-spec.md
-# §Azure for the candidate resource × tag × restriction matrix.
-# =============================================================================
-
-locals {
-  common_tags = merge(
-    var.lure_tags,
-    { (var.tracking_tag_key) = var.tracking_tag_value },
-  )
-}
-
-# Candidate kinds (deferred): Service Principal, Managed Identity,
-# Storage Account/Blob, Key Vault Secret.
+# terraform-azure-deception
+# Design locked 2026-06-04 (Epic D.1). Azure counterpart of terraform-aws-deception.
+#
+# Resource files:
+#   locals.tf            — shared locals, instance maps, derived names
+#   service_principal.tf — azuread_application, azuread_service_principal, azuread_application_password, azuread_conditional_access_policy
+#   managed_identity.tf  — azurerm_user_assigned_identity
+#   storage.tf           — azurerm_storage_account, azurerm_storage_container, azurerm_storage_blob
+#   keyvault.tf          — azurerm_key_vault, azurerm_key_vault_secret

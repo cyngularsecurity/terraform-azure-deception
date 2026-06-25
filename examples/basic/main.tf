@@ -15,6 +15,10 @@ terraform {
 
 provider "azurerm" {
   subscription_id = var.subscription_id
+  # Required: shared_access_key_enabled = false on the storage accounts means
+  # the provider must use Azure AD for all data-plane operations (blob upload,
+  # health checks). Without this, apply fails with 403 KeyBasedAuthenticationNotPermitted.
+  storage_use_azuread = true
   features {}
 }
 

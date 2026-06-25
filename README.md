@@ -5,7 +5,7 @@ Terraform module that plants **inert Azure decoy (honeytoken) resources** into a
 ## Design
 
 - **Freely RBAC-reachable, internet-read-blocked** — any authenticated interaction is a high-signal detection event.
-- **Inert by zero role-assignments** — the module never creates `azurerm_role_assignment` or Graph directory role assignments for any decoy principal.
+- **Inert by zero role-assignments** — decoy SPs and Managed Identities receive no `azurerm_role_assignment` or Graph directory role assignments at any scope. The module does create one role assignment per Key Vault for the Terraform apply principal (to write the decoy secret), scoped to that vault only.
 - **Lured by name, not capability** — intriguing-but-generic names and believable operational tags; nothing inside the resources is actionable.
 - **No Cyngular reference anywhere in the tenant** — cover protection enforced by variable validation.
 - **Attribution = created resource IDs (outputs) + caller-supplied tracking tag.**
@@ -28,7 +28,8 @@ The Terraform apply principal needs:
 | Permission | Required for |
 |---|---|
 | Contributor on the resource group | Storage Account, Key Vault, Managed Identity creation |
-| Storage Blob Data Contributor on each storage account | Uploading decoy blobs via data plane (RBAC auth — see note below) |
+| Storage Blob Data Contributor on each storage account | Uploading decoy blobs via Azure AD data-plane auth |
+| Key Vault Secrets Officer on each Key Vault | **Auto-assigned by the module** to the apply principal at vault scope |
 
 **Tenant scope (Azure AD)**
 
@@ -37,7 +38,6 @@ The Terraform apply principal needs:
 | Application Administrator _or_ Cloud Application Administrator | App Registrations, Service Principals, client secrets |
 | `Policy.ReadWrite.ConditionalAccess` (Graph) | Only when `service_principal.conditional_access_block = true` |
 
-> **Storage data-plane auth note:** The module sets `shared_access_key_enabled = false` on every storage account so all data-plane touches are audit-logged via Azure RBAC. The `azurerm` provider must authenticate via Azure AD (not a storage key) to upload the decoy blobs. Ensure the provider is configured with a principal that holds **Storage Blob Data Contributor** on the account, or that `storage_use_azuread = true` is set in the provider block.
 
 ## Zero-role-assignment guarantee
 

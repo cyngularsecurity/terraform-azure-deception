@@ -1,3 +1,5 @@
+data "azurerm_client_config" "current" {}
+
 resource "random_id" "kv_suffix" {
   for_each    = local.kv_instances
   byte_length = 2
@@ -25,12 +27,7 @@ resource "azurerm_key_vault" "decoy" {
   sku_name            = "standard"
 
   # RBAC-mode — all access control via Azure RBAC, not legacy access policies.
-  # The module creates zero role assignments, so no principal can read the
-  # secret without the client explicitly granting access.
-  rbac_authorization_enabled = true
-
-  # Publicly reachable so in-tenant principals with Key Vault Secrets User
-  # can access (and be audit-logged doing so).
+  rbac_authorization_enabled    = true
   public_network_access_enabled = true
 
   # Soft-delete is mandatory in azurerm >= 4.0. Purge protection off so
@@ -39,6 +36,25 @@ resource "azurerm_key_vault" "decoy" {
   purge_protection_enabled   = false
 
   tags = local.common_tags
+}
+
+# Grant the Terraform apply principal Secrets Officer on each vault so it can
+# write the decoy secret during apply. This is a role assignment for the apply
+# principal only — decoy SPs and MIs remain at zero role assignments per the
+# inertness guarantee.
+resource "azurerm_role_assignment" "kv_apply_principal" {
+  for_each             = local.kv_instances
+  scope                = azurerm_key_vault.decoy[each.key].id
+  role_definition_name = "Key Vault Secrets Officer"
+  principal_id         = data.azurerm_client_config.current.object_id
+}
+
+# Azure RBAC assignments propagate asynchronously. 60 s covers the typical
+# 30–60 s window; rare slow propagation may still cause a 403 on first apply
+# (re-running apply resolves it without any state changes needed).
+resource "time_sleep" "kv_rbac_propagation" {
+  depends_on      = [azurerm_role_assignment.kv_apply_principal]
+  create_duration = "60s"
 }
 
 resource "azurerm_key_vault_secret" "decoy" {
@@ -53,4 +69,6 @@ resource "azurerm_key_vault_secret" "decoy" {
   )
 
   tags = local.common_tags
+
+  depends_on = [time_sleep.kv_rbac_propagation]
 }

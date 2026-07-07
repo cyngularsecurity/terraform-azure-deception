@@ -1,16 +1,18 @@
 resource "random_id" "kv_suffix" {
-  for_each    = local.kv_instances
-  byte_length = 2
+  for_each = local.kv_instances
+  byte_length = 4
   keepers = {
     name_prefix = local.kv_prefix
     instance    = each.key
   }
 }
 
-# Used to generate a plausible-looking fake secret value per KV instance
+# Used to generate a plausible-looking fake secret value per KV instance.
+# 64 bytes -> base64 is 88 chars ending "==", the exact shape of a real
+# Azure storage account key.
 resource "random_id" "kv_secret_token" {
   for_each    = local.kv_instances
-  byte_length = 32
+  byte_length = 64
   keepers = {
     instance = each.key
   }
@@ -62,11 +64,36 @@ resource "azurerm_key_vault_secret" "decoy" {
 
   # If the caller supplies a fake_value, use it; otherwise generate a
   # connection-string-shaped placeholder that looks like a real Azure secret.
+  # AccountName: prefix + 8 hex chars, same format as the real decoy accounts
+  # and within Azure's 24-char account-name limit — a longer name would be an
+  # instant giveaway to anyone who knows Azure.
   value = var.key_vault_secret.fake_value != "" ? var.key_vault_secret.fake_value : (
-    "DefaultEndpointsProtocol=https;AccountName=${local.sa_prefix}${random_id.kv_secret_token[each.key].hex};AccountKey=${random_id.kv_secret_token[each.key].b64_std};EndpointSuffix=core.windows.net"
+    "DefaultEndpointsProtocol=https;AccountName=${local.sa_prefix}${substr(random_id.kv_secret_token[each.key].hex, 0, 8)};AccountKey=${random_id.kv_secret_token[each.key].b64_std};EndpointSuffix=core.windows.net"
   )
 
   tags = local.common_tags
 
   depends_on = [time_sleep.kv_rbac_propagation]
+}
+
+# Deletion guardrail — see the storage lock comment for rationale and limits.
+resource "azurerm_management_lock" "keyvault" {
+  for_each   = var.deletion_locks_enabled ? local.kv_instances : {}
+  name       = "retention-lock"
+  scope      = azurerm_key_vault.decoy[each.key].id
+  lock_level = "CanNotDelete"
+  notes      = "Do not delete - required by data retention policy."
+}
+
+# Data-plane audit logging: SecretGet never hits the Activity Log, so without
+# this a read of the bait secret produces no detection signal.
+resource "azurerm_monitor_diagnostic_setting" "keyvault" {
+  for_each                   = var.log_analytics_workspace_id != "" ? local.kv_instances : {}
+  name                       = "operational-audit"
+  target_resource_id         = azurerm_key_vault.decoy[each.key].id
+  log_analytics_workspace_id = var.log_analytics_workspace_id
+
+  enabled_log {
+    category = "AuditEvent"
+  }
 }

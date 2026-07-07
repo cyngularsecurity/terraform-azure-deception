@@ -27,9 +27,11 @@ The Terraform apply principal needs:
 
 | Permission | Required for |
 |---|---|
-| Contributor on the resource group | Storage Account, Key Vault, Managed Identity creation |
+| Owner on the resource group — or Contributor **plus** User Access Administrator | Resource creation, plus `roleAssignments/write` (auto role assignments) and `locks/write` (deletion locks) |
 | Storage Blob Data Contributor on each storage account | **Auto-assigned by the module** to the apply principal at account scope |
 | Key Vault Secrets Officer on each Key Vault | **Auto-assigned by the module** to the apply principal at vault scope |
+
+Plain Contributor is **not** sufficient: the module creates role assignments (always) and management locks (unless `deletion_locks_enabled = false`), both of which need `Microsoft.Authorization/*` write.
 
 **Tenant scope (Azure AD)**
 
@@ -53,9 +55,11 @@ A Service Principal or Managed Identity created by this module is enumerable but
 
 ## Conditional Access (optional defense-in-depth)
 
-Set `service_principal.conditional_access_block = true` to create an Entra ID Conditional Access policy that blocks all sign-ins targeting the decoy SPs.
+Set `service_principal.conditional_access_block = true` to create a **workload-identity** Conditional Access policy that blocks token issuance for the decoy SPs themselves (client-credentials flow — the path a leaked bait secret would use). A user-scoped CA policy would not cover SP sign-ins.
 
-**Requirements:** Entra ID P1 or higher in the tenant; `Policy.ReadWrite.ConditionalAccess` Graph permission for the apply principal. Without these, the SPs are still fully inert via the zero-role-assignment rule — CA is an additional layer.
+**Requirements:** Microsoft Entra Workload ID Premium license in the tenant; `Policy.ReadWrite.ConditionalAccess` Graph permission for the apply principal. Without these, the SPs are still fully inert via the zero-role-assignment rule — CA is an additional layer.
+
+**Detection trade-off:** with CA blocking enabled, a bait-secret sign-in attempt is *rejected* (failure event in sign-in logs); without it, the sign-in *succeeds* but the token is useless (success event, zero RBAC). Both paths are logged and detectable — choose based on whether you prefer to deny or to observe.
 
 ## Cover protection
 
@@ -68,11 +72,13 @@ module "deception" {
   source  = "cyngularsecurity/deception/azure"
   version = "~> 0.1"
 
-  subscription_id     = "00000000-0000-0000-0000-000000000000"
   tenant_id           = "00000000-0000-0000-0000-000000000000"
   resource_group_name = "rg-prod-legacy"
 
   locations = ["eastus", "westus2"]
+
+  # Data-plane audit logging — without this, blob/secret reads are invisible.
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.detection.id
 
   tracking_tag_key   = "cost-center"
   tracking_tag_value = "cc-9842"
@@ -118,7 +124,6 @@ module "deception" {
 
 | Name | Type | Default | Description |
 |---|---|---|---|
-| `subscription_id` | `string` | — | Azure subscription for decoys |
 | `tenant_id` | `string` | — | Azure AD tenant for the Service Principal |
 | `resource_group_name` | `string` | — | Existing RG; module does not create it |
 | `locations` | `list(string)` | `["eastus"]` | Regions for Storage and Key Vault (fan-out) |
@@ -129,6 +134,8 @@ module "deception" {
 | `managed_identity` | object | `{}` (disabled) | Managed Identity honeytoken config |
 | `storage_account` | object | `{}` (disabled) | Storage Account decoy config |
 | `key_vault_secret` | object | `{}` (disabled) | Key Vault Secret decoy config |
+| `deletion_locks_enabled` | `bool` | `true` | CanNotDelete locks on decoy Storage Accounts and Key Vaults |
+| `log_analytics_workspace_id` | `string` | `""` (off) | Workspace for data-plane audit logs — **strongly recommended**, decoys are silent without it |
 
 All per-kind objects share `enabled`, `count`, `name_prefix`. See `variables.tf` for the full shape and validation constraints.
 
@@ -143,6 +150,7 @@ All per-kind objects share `enabled`, `count`, `name_prefix`. See `variables.tf`
 | `managed_identity_principal_ids` | Principal IDs keyed by instance |
 | `storage_account_ids` | Resource IDs keyed by `instance-location` |
 | `key_vault_secret_ids` | Versioned secret IDs keyed by `instance-location` |
+| `apply_principal_object_id` | Object ID of the Terraform apply principal — allowlist it in the detection platform (its plan/refresh reads touch the decoys) |
 | `tracking_tag` | `{ key, value }` echoed for platform registration |
 
 ## Storage account posture
@@ -169,7 +177,46 @@ All per-kind objects share `enabled`, `count`, `name_prefix`. See `variables.tf`
 | Kind | Azure limit | Module behavior |
 |---|---|---|
 | Storage account | 3–24 chars, lowercase alphanumeric, globally unique | `name_prefix` (1–11 chars) + 8-char random hex suffix |
-| Key Vault | 3–24 chars, alphanumeric + hyphens, start with letter, globally unique | `name_prefix` (1–14 chars) + `-` + 4-char random hex suffix |
+| Key Vault | 3–24 chars, alphanumeric + hyphens, start with letter, globally unique | `name_prefix` (1–14 chars) + `-` + 8-char random hex suffix |
 | KV secret name | 1–127 chars, `[a-zA-Z0-9-]` | Fixed to `storage-account-key` |
 | Managed Identity | 3–128 chars, alphanumeric + `_-.` | `name_prefix-index` |
 | App Registration display_name | ≤ 256 chars | `name_prefix-index` |
+
+## Detection signal (data-plane logging)
+
+Blob `GetBlob` and Key Vault `SecretGet` are data-plane operations that **never reach the Azure Activity Log** — without diagnostic settings, the storage/KV decoys produce no signal when touched. Set `log_analytics_workspace_id` and the module creates, per decoy:
+
+| Decoy | Diagnostic categories | Signal on |
+|---|---|---|
+| Storage Account (blob service) | `StorageRead`, `StorageWrite`, `StorageDelete` | Blob enumeration, download, tamper |
+| Key Vault | `AuditEvent` | Secret read, enumeration, any vault data-plane call |
+
+SP sign-ins and Managed Identity RBAC events are already covered by Entra sign-in / Activity logs and need no extra configuration. The diagnostic destination is visible to anyone with Reader on a decoy, so the workspace ID is validated against the forbidden-token list.
+
+## Deletion guardrails
+
+`deletion_locks_enabled = true` (default) places a `CanNotDelete` management lock (name: `retention-lock`, cover-safe lure notes) on every decoy Storage Account and Key Vault, so an attacker who recognizes the bait cannot erase the tripwire through the management plane. Limits to be aware of:
+
+- Locks are management-plane only — they do **not** stop data-plane writes (blob overwrite, secret update). Azure has no per-object deny analogue to S3 bucket policies; tamper *detection* comes from the `StorageWrite`/`StorageDelete` diagnostic categories above.
+- A lock-delete attempt is itself a high-signal Activity Log event.
+- `terraform destroy` still works — Terraform removes its own locks first (this is why the apply principal needs `Microsoft.Authorization/locks/*`).
+
+## State hygiene
+
+Terraform state contains the bait SP client secrets in plaintext (`sensitive = true` only masks CLI output) **and the full decoy layout** — anyone who reads the state knows exactly which resources are traps, which burns the deception entirely.
+
+- Use an **encrypted remote backend** (Azure Storage backend with RBAC-only access, or Terraform Cloud) — never local state for production deployments.
+- Treat state read access as equivalent to knowing the decoy set. Scope backend access to the deploying pipeline only.
+
+## Expected security-scanner findings
+
+The decoy posture is deliberately "attractive" — security scanners (checkov, tfsec, Defender for Cloud) will flag it. These findings are **intentional and must not be "fixed"**, or the decoys stop being reachable lures:
+
+| Finding | Why it's intentional |
+|---|---|
+| Storage/KV public network access enabled | Decoys must be reachable in-tenant to be touched |
+| Storage firewall `default_action = Allow` | Same — RBAC (not network) is the control layer |
+| Key Vault purge protection disabled | `terraform destroy` must work without a 90-day wait |
+| No Private Endpoints / CMK | Decoys hold no real data; hardening them defeats the lure |
+
+Anonymous internet access is still blocked (`allow_nested_items_to_be_public = false`, shared-key auth disabled) — every touch requires an authenticated, audit-logged identity.

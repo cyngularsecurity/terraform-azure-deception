@@ -21,25 +21,37 @@ resource "azuread_application_password" "decoy" {
   end_date       = time_offset.sp_secret_expiry[each.key].rfc3339
 }
 
+# Workload-identity Conditional Access policy: blocks token issuance for the
+# decoy SPs themselves (client-credentials flow — the path a leaked bait secret
+# would use). A user-scoped policy would NOT cover SP sign-ins.
+# Requires Microsoft Entra Workload ID Premium in the tenant.
 resource "azuread_conditional_access_policy" "decoy_block" {
   count        = var.service_principal.enabled && var.service_principal.conditional_access_block && var.service_principal.count > 0 ? 1 : 0
   display_name = "${local.sp_prefix}-access-control"
   state        = "enabled"
 
   conditions {
-    applications {
-      included_applications = [for k, v in azuread_application.decoy : v.client_id]
-    }
-    users {
-      included_users = ["All"]
-    }
     client_app_types = ["all"]
+
+    client_applications {
+      included_service_principals = [for k, v in azuread_service_principal.decoy : v.object_id]
+    }
+
+    applications {
+      included_applications = ["All"]
+    }
+
+    locations {
+      included_locations = ["All"]
+    }
+
+    users {
+      included_users = ["None"]
+    }
   }
 
   grant_controls {
     operator          = "OR"
     built_in_controls = ["block"]
   }
-
-  depends_on = [azuread_service_principal.decoy]
 }

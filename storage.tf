@@ -18,10 +18,10 @@ resource "azurerm_storage_account" "decoy" {
   allow_nested_items_to_be_public = false
   shared_access_key_enabled       = false
   min_tls_version                 = "TLS1_2"
-  network_rules {
-    default_action = "Allow"
-    bypass         = ["AzureServices"]
-  }
+  # No network_rules block: Azure's default for a new account is already
+  # default_action = Allow with AzureServices bypass (decoys must be reachable
+  # in-tenant). Declaring the same values explicitly causes perpetual plan
+  # drift — the API doesn't echo back a default-only ACL.
 
   tags = local.common_tags
 }
@@ -57,4 +57,35 @@ resource "azurerm_storage_blob" "decoy" {
   storage_container_name = azurerm_storage_container.decoy[each.value.storage_key].name
   type                   = "Block"
   source_content         = each.value.blob_content
+}
+
+# Deletion guardrail: an attacker who finds the bait must not be able to erase
+# the tripwire via the management plane. Lock name/notes are cover-safe lure
+# text. Data-plane writes are NOT blocked (no Azure analogue to S3 deny).
+resource "azurerm_management_lock" "storage" {
+  for_each   = var.deletion_locks_enabled ? local.sa_instances : {}
+  name       = "retention-lock"
+  scope      = azurerm_storage_account.decoy[each.key].id
+  lock_level = "CanNotDelete"
+  notes      = "Do not delete - required by data retention policy."
+}
+
+# Data-plane audit logging: blob reads never hit the Activity Log, so without
+# this the decoy produces no detection signal on its most attacker-relevant
+# touches. Gated on the caller supplying a Log Analytics workspace.
+resource "azurerm_monitor_diagnostic_setting" "storage_blob" {
+  for_each                   = var.log_analytics_workspace_id != "" ? local.sa_instances : {}
+  name                       = "operational-audit"
+  target_resource_id         = "${azurerm_storage_account.decoy[each.key].id}/blobServices/default"
+  log_analytics_workspace_id = var.log_analytics_workspace_id
+
+  enabled_log {
+    category = "StorageRead"
+  }
+  enabled_log {
+    category = "StorageWrite"
+  }
+  enabled_log {
+    category = "StorageDelete"
+  }
 }

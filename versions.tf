@@ -10,15 +10,15 @@ terraform {
     }
     azuread = {
       source  = "hashicorp/azuread"
-      version = ">= 2.0"
+      version = ">= 2.0, < 4.0"
     }
     random = {
       source  = "hashicorp/random"
-      version = ">= 3.5"
+      version = ">= 3.5, < 4.0"
     }
     time = {
       source  = "hashicorp/time"
-      version = ">= 0.9"
+      version = ">= 0.9, < 2.0"
     }
   }
 }

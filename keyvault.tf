@@ -1,8 +1,5 @@
 resource "random_id" "kv_suffix" {
   for_each = local.kv_instances
-  # 4 bytes = 8 hex chars. KV names are globally unique across Azure; 2 bytes
-  # (65k values) risks birthday collisions once many tenants share a default
-  # prefix. Name budget: prefix (<=14) + "-" + 8 hex = 23 <= 24.
   byte_length = 4
   keepers = {
     name_prefix = local.kv_prefix
@@ -77,4 +74,26 @@ resource "azurerm_key_vault_secret" "decoy" {
   tags = local.common_tags
 
   depends_on = [time_sleep.kv_rbac_propagation]
+}
+
+# Deletion guardrail — see the storage lock comment for rationale and limits.
+resource "azurerm_management_lock" "keyvault" {
+  for_each   = var.deletion_locks_enabled ? local.kv_instances : {}
+  name       = "retention-lock"
+  scope      = azurerm_key_vault.decoy[each.key].id
+  lock_level = "CanNotDelete"
+  notes      = "Do not delete - required by data retention policy."
+}
+
+# Data-plane audit logging: SecretGet never hits the Activity Log, so without
+# this a read of the bait secret produces no detection signal.
+resource "azurerm_monitor_diagnostic_setting" "keyvault" {
+  for_each                   = var.log_analytics_workspace_id != "" ? local.kv_instances : {}
+  name                       = "operational-audit"
+  target_resource_id         = azurerm_key_vault.decoy[each.key].id
+  log_analytics_workspace_id = var.log_analytics_workspace_id
+
+  enabled_log {
+    category = "AuditEvent"
+  }
 }

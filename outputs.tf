@@ -15,7 +15,7 @@ output "service_principal_app_ids" {
 }
 
 output "service_principal_secrets" {
-  description = "Client secrets for SPs created with generate_secret = true, keyed by instance. Empty map when generate_secret = false."
+  description = "Client secrets for SPs created with generate_secret = true, keyed by instance. Empty map when generate_secret = false. INTENTIONAL lure-delivery channel: the platform retrieves these to plant them as bait. The value lives in Terraform state either way (sensitive only masks CLI output) — see the State hygiene section of the README. Leak blast radius is an inert zero-RBAC credential whose use is itself the alarm."
   value       = { for k, v in azuread_application_password.decoy : k => v.value }
   sensitive   = true
 }

@@ -51,11 +51,17 @@ module "deception" {
   #   source  = "cyngularsecurity/deception/azure"
   #   version = "~> 0.1"
 
-  subscription_id     = var.subscription_id
   tenant_id           = var.tenant_id
   resource_group_name = var.resource_group_name
 
   locations = ["eastus", "westus2"]
+
+  # Recommended: route data-plane audit logs (blob reads, secret reads) to a
+  # Log Analytics workspace — without this the storage/KV decoys are silent.
+  # log_analytics_workspace_id = azurerm_log_analytics_workspace.example.id
+
+  # CanNotDelete locks on decoy storage accounts / key vaults (default true).
+  # deletion_locks_enabled = true
 
   tracking_tag_key   = "cost-center"
   tracking_tag_value = "cc-9842"
@@ -67,11 +73,11 @@ module "deception" {
   }
 
   service_principal = {
-    enabled             = true
-    count               = 2
-    name_prefix         = "legacy-svc"
-    generate_secret     = true
-    secret_expiry_years = 5
+    enabled                  = true
+    count                    = 2
+    name_prefix              = "legacy-svc"
+    generate_secret          = true
+    secret_expiry_years      = 5
     conditional_access_block = false
   }
 
@@ -124,6 +130,10 @@ output "storage_account_ids" {
 
 output "key_vault_secret_ids" {
   value = module.deception.key_vault_secret_ids
+}
+
+output "apply_principal_object_id" {
+  value = module.deception.apply_principal_object_id
 }
 
 output "tracking_tag" {

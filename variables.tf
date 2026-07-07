@@ -5,11 +5,6 @@
 
 # Placement
 
-variable "subscription_id" {
-  description = "Azure subscription the decoys land in (client's choice)."
-  type        = string
-}
-
 variable "tenant_id" {
   description = "Azure AD tenant ID where the Service Principal is created."
   type        = string
@@ -220,6 +215,25 @@ variable "key_vault_secret" {
   validation {
     condition     = !can(regex("(?i)(cyngular|deception|decoy|honeytoken|bait|trap|observer)", var.key_vault_secret.fake_value))
     error_message = "key_vault_secret.fake_value must not contain forbidden tokens."
+  }
+}
+
+# Guardrails
+
+variable "deletion_locks_enabled" {
+  description = "Create CanNotDelete management locks on decoy Storage Accounts and Key Vaults so the tripwire cannot be erased via the management plane. Requires Microsoft.Authorization/locks/write (Owner or User Access Administrator) — the module already needs that tier for its role assignments. Locks do not block data-plane writes (Azure has no per-object deny analogue to S3 bucket policies)."
+  type        = bool
+  default     = true
+}
+
+variable "log_analytics_workspace_id" {
+  description = "Log Analytics workspace resource ID for data-plane audit logging. When set, the module creates diagnostic settings: blob StorageRead/Write/Delete on each decoy Storage Account and AuditEvent on each decoy Key Vault. Without it, blob reads and secret reads produce NO detection signal (they never reach the Activity Log). Empty string disables."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = !can(regex("(?i)(cyngular|deception|decoy|honeytoken|bait|trap|observer)", var.log_analytics_workspace_id))
+    error_message = "log_analytics_workspace_id must not contain forbidden tokens — the destination workspace ID is visible to anyone with Reader on a decoy via its diagnostic settings."
   }
 }
 

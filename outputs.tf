@@ -40,6 +40,11 @@ output "key_vault_secret_ids" {
   value       = { for k, v in azurerm_key_vault_secret.decoy : k => v.id }
 }
 
+output "apply_principal_object_id" {
+  description = "Object ID of the principal that ran terraform apply. Its data-plane reads (plan/refresh) touch the decoys — the detection platform must allowlist this principal to avoid false positives."
+  value       = data.azurerm_client_config.current.object_id
+}
+
 output "tracking_tag" {
   description = "The tracking tag (key/value) applied to every decoy. Used as the platform-side lookup index for per-client decoy sets."
   value = {

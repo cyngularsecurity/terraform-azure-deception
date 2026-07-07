@@ -199,7 +199,7 @@ variable "key_vault_secret" {
 
   validation {
     condition     = length(var.key_vault_secret.name_prefix) <= 14
-    error_message = "key_vault_secret.name_prefix must be <= 14 chars (module appends '-XXXX' suffix; total must stay within Azure's 24-char KV name limit)."
+    error_message = "key_vault_secret.name_prefix must be <= 14 chars (module appends a '-' + 8-char random hex suffix; total must stay within Azure's 24-char KV name limit)."
   }
 
   validation {

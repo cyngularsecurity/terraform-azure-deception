@@ -53,9 +53,11 @@ A Service Principal or Managed Identity created by this module is enumerable but
 
 ## Conditional Access (optional defense-in-depth)
 
-Set `service_principal.conditional_access_block = true` to create an Entra ID Conditional Access policy that blocks all sign-ins targeting the decoy SPs.
+Set `service_principal.conditional_access_block = true` to create a **workload-identity** Conditional Access policy that blocks token issuance for the decoy SPs themselves (client-credentials flow — the path a leaked bait secret would use). A user-scoped CA policy would not cover SP sign-ins.
 
-**Requirements:** Entra ID P1 or higher in the tenant; `Policy.ReadWrite.ConditionalAccess` Graph permission for the apply principal. Without these, the SPs are still fully inert via the zero-role-assignment rule — CA is an additional layer.
+**Requirements:** Microsoft Entra Workload ID Premium license in the tenant; `Policy.ReadWrite.ConditionalAccess` Graph permission for the apply principal. Without these, the SPs are still fully inert via the zero-role-assignment rule — CA is an additional layer.
+
+**Detection trade-off:** with CA blocking enabled, a bait-secret sign-in attempt is *rejected* (failure event in sign-in logs); without it, the sign-in *succeeds* but the token is useless (success event, zero RBAC). Both paths are logged and detectable — choose based on whether you prefer to deny or to observe.
 
 ## Cover protection
 
@@ -143,6 +145,7 @@ All per-kind objects share `enabled`, `count`, `name_prefix`. See `variables.tf`
 | `managed_identity_principal_ids` | Principal IDs keyed by instance |
 | `storage_account_ids` | Resource IDs keyed by `instance-location` |
 | `key_vault_secret_ids` | Versioned secret IDs keyed by `instance-location` |
+| `apply_principal_object_id` | Object ID of the Terraform apply principal — allowlist it in the detection platform (its plan/refresh reads touch the decoys) |
 | `tracking_tag` | `{ key, value }` echoed for platform registration |
 
 ## Storage account posture
@@ -169,7 +172,27 @@ All per-kind objects share `enabled`, `count`, `name_prefix`. See `variables.tf`
 | Kind | Azure limit | Module behavior |
 |---|---|---|
 | Storage account | 3–24 chars, lowercase alphanumeric, globally unique | `name_prefix` (1–11 chars) + 8-char random hex suffix |
-| Key Vault | 3–24 chars, alphanumeric + hyphens, start with letter, globally unique | `name_prefix` (1–14 chars) + `-` + 4-char random hex suffix |
+| Key Vault | 3–24 chars, alphanumeric + hyphens, start with letter, globally unique | `name_prefix` (1–14 chars) + `-` + 8-char random hex suffix |
 | KV secret name | 1–127 chars, `[a-zA-Z0-9-]` | Fixed to `storage-account-key` |
 | Managed Identity | 3–128 chars, alphanumeric + `_-.` | `name_prefix-index` |
 | App Registration display_name | ≤ 256 chars | `name_prefix-index` |
+
+## State hygiene
+
+Terraform state contains the bait SP client secrets in plaintext (`sensitive = true` only masks CLI output) **and the full decoy layout** — anyone who reads the state knows exactly which resources are traps, which burns the deception entirely.
+
+- Use an **encrypted remote backend** (Azure Storage backend with RBAC-only access, or Terraform Cloud) — never local state for production deployments.
+- Treat state read access as equivalent to knowing the decoy set. Scope backend access to the deploying pipeline only.
+
+## Expected security-scanner findings
+
+The decoy posture is deliberately "attractive" — security scanners (checkov, tfsec, Defender for Cloud) will flag it. These findings are **intentional and must not be "fixed"**, or the decoys stop being reachable lures:
+
+| Finding | Why it's intentional |
+|---|---|
+| Storage/KV public network access enabled | Decoys must be reachable in-tenant to be touched |
+| Storage firewall `default_action = Allow` | Same — RBAC (not network) is the control layer |
+| Key Vault purge protection disabled | `terraform destroy` must work without a 90-day wait |
+| No Private Endpoints / CMK / diagnostic settings | Decoys hold no real data; hardening them defeats the lure |
+
+Anonymous internet access is still blocked (`allow_nested_items_to_be_public = false`, shared-key auth disabled) — every touch requires an authenticated, audit-logged identity.

@@ -8,12 +8,12 @@ resource "random_id" "storage_suffix" {
 }
 
 resource "azurerm_storage_account" "decoy" {
-  for_each                 = local.sa_instances
-  name                     = "${local.sa_prefix}${random_id.storage_suffix[each.key].hex}"
-  resource_group_name      = var.resource_group_name
-  location                 = each.value.location
-  account_tier             = "Standard"
-  account_replication_type = "LRS"
+  for_each                        = local.sa_instances
+  name                            = "${local.sa_prefix}${random_id.storage_suffix[each.key].hex}"
+  resource_group_name             = var.resource_group_name
+  location                        = each.value.location
+  account_tier                    = "Standard"
+  account_replication_type        = "LRS"
   public_network_access_enabled   = true
   allow_nested_items_to_be_public = false
   shared_access_key_enabled       = false
